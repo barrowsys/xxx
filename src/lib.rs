@@ -66,51 +66,9 @@ pub unsafe fn free<X>(x: *mut X, Z: usize) {
     }
 }
 
-#[inline(always)]
-unsafe fn W<X>(x: *mut u8, y: *mut u8) {
-    unsafe {
-        ptr::write(x.cast::<X>(), ptr::read_unaligned(y.cast::<X>()));
-    }
-}
-
-struct MemIter {
-    start: *mut u8,
-    length: usize,
-}
-impl MemIter {
-    fn is_aligned_to(&self, align: usize) -> bool {
-        self.start.align_offset(align) == 0
-    }
-    fn next_chunk_size(&self) -> usize {
-        let prev_power_of_two = (self.length + 1).next_power_of_two() >> 1;
-        prev_power_of_two.min(32)
-    }
-}
-impl Iterator for MemIter {
-    type Item = MemIter; // dwai
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.length == 0 {
-            return None;
-        }
-        // see #[test] current_alignment()
-        let current_alignment = 1 << self.start.addr().trailing_zeros();
-        let max_alignment = self.next_chunk_size();
-        let item = MemIter {
-            start: self.start,
-            length: std::cmp::min(current_alignment, max_alignment),
-        };
-        unsafe { // voice of god says this upholds all relevant invariants
-            self.start = self.start.add(item.length);
-            self.length -= item.length;
-        }
-        Some(item)
-    }
-}
-
 #[test]
 fn current_alignment() {
-    let test = |a:usize, b:usize| assert_eq!(1 << a.trailing_zeros(), b);
+    let test = |a: usize, b: usize| assert_eq!(1 << a.trailing_zeros(), b);
     test(128 + 1, 1);
     test(128 + 2, 2);
     test(128 + 4, 4);
@@ -118,109 +76,63 @@ fn current_alignment() {
     test(128 + 16, 16);
 }
 
-#[test]
-fn mem_iter() {
-    let test = |a: (usize, usize), b: &[usize]| {
-        assert!(a.0 < 256);
-        assert!(a.1 < 256);
-        let stupid_chud_pointer: *mut u8 = &mut 0;
-        let stupid_chud_pointer = stupid_chud_pointer.with_addr(0xFF00 + a.0);
-        let mut iter = MemIter {
-            start: stupid_chud_pointer,
-            length: a.1,
-        };
-        let collected = iter.map(|m| m.length).collect::<Vec<_>>();
-        assert_eq!(collected, b);
-    };
-    test((0, 16), &[
-        16, // 0x00 -> copy 16 -> total 16
-    ]);
-    test((1, 4), &[
-        1, // 0x01 -> copy 1 -> total 1
-        2, // 0x02 -> copy 2 -> total 3
-        1, // 0x04 -> copy 1 -> total 4
-    ]);
-    test((1, 10), &[
-        1, // 0x01 -> copy 1 -> total 1
-        2, // 0x02 -> copy 2 -> total 3
-        4, // 0x04 -> copy 4 -> total 7
-        2, // 0x08 -> copy 2 -> total 9
-        1, // 0x0A -> copy 1 -> total 10
-    ]);
-    test((0, 3), &[
-        2, // 0x00 -> copy 2 -> total 2
-        1, // 0x02 -> copy 1 -> total 3
-    ]);
-    test((1,34), &[
-        1, // 0x01 -> copy 1 -> total 1
-        2, // 0x02 -> copy 2 -> total 3
-        4, // 0x04 -> copy 4 -> total 7
-        8, // 0x08 -> copy 8 -> total 15
-        16, // 0x10 -> copy 16 -> total 31
-        2, // 0x20 -> copy 2 -> total 33
-        1, // 0x22 -> copy 1 -> total 34
-    ]);
+#[inline(always)]
+unsafe fn W<X>(x: *mut u8, y: *mut u8) {
+    unsafe {
+        ptr::write_unaligned(x.cast::<X>(), ptr::read_unaligned(y.cast::<X>()));
+    }
 }
 
 pub unsafe fn cpy<X>(x: *mut X, y: *mut X, Z: usize) {
     /* everything into bytes */
     let mut x = x as *mut u8;
-    let mut iter = MemIter {
-        start: y as *mut u8,
-        length: Z * size_of::<X>(),
-    };
+    let mut y = y as *mut u8;
+    let mut Z = Z * size_of::<X>();
 
-    while let Some(Z) = iter.next() {
-        match Z.length {
-            /* simd (ymm/512) */
-            q if q >= 32 => {
-                unsafe {
-                    W::<ymm_t>(x, Z.start);
-                    x = x.add(32);
-                }
-            }
+    macro_rules! W {
+        ($x:expr, $y:expr, $T:ty) => {{
+            W::<$T>(x, y);
+            $x = $x.add(size_of::<$T>());
+            $y = $y.add(size_of::<$T>());
+            Z -= size_of::<$T>();
+        }};
+    }
 
-            /* simd (xmm/16) */
-            q if q >= 16 => {
-                unsafe {
-                    W::<xmm_t>(x, Z.start);
-                    x = x.add(16);
-                }
-            }
+    unsafe {
+        while Z >= 128 {
+            W!(x, y, ymm_t);
+            W!(x, y, ymm_t);
+            W!(x, y, ymm_t);
+            W!(x, y, ymm_t);
+        }
 
-            /* 64 */
-            q if q >= 8 => {
-                unsafe {
-                    W::<u64>(x, Z.start);
-                    x = x.add(8);
-                }
-            }
+        while Z >= 64 {
+            W!(x, y, ymm_t);
+            W!(x, y, ymm_t);
+        }
 
-            /* 32 */
-            q if q >= 4 => {
-                unsafe {
-                    W::<u32>(x, Z.start);
-                    x = x.add(4);
-                }
-            }
+        while Z >= 32 {
+            W!(x, y, ymm_t);
+        }
 
-            /* 16 */
-            q if q >= 2 => {
-                unsafe {
-                    W::<u16>(x, Z.start);
-                    x = x.add(2);
-                }
-            }
+        while Z >= 16 {
+            W!(x, y, xmm_t);
+        }
 
-            /* 8 */
-            q if q >= 1 => {
-                unsafe {
-                    W::<u8>(x, Z.start);
-                    x = x.add(1);
-                }
-            }
+        while Z >= 8 {
+            W!(x, y, u64);
+        }
 
-            _ => {},
+        while Z >= 4 {
+            W!(x, y, u32);
+        }
+
+        while Z >= 2 {
+            W!(x, y, u16);
+        }
+
+        while Z >= 1 {
+            W!(x, y, u8);
         }
     }
 }

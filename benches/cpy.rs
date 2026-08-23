@@ -1,5 +1,5 @@
-use std::{ptr, hint::black_box};
-use criterion::{criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, criterion_group, criterion_main};
+use std::{hint::black_box, ptr};
 use xxx;
 
 fn iota(x: usize) -> *mut usize {
@@ -15,34 +15,26 @@ fn iota(x: usize) -> *mut usize {
 }
 
 fn criterion_bench(c: &mut Criterion) {
-    unsafe {
-        let small_n = 20;
-        let small_x = iota(small_n);
-        let small_y = xxx::new(small_n).unwrap();
+    let mut B = |N, n, x, y: Result<*mut usize, String>| unsafe {
+        let y = y.unwrap();
+        let N2 = format!("{N} (std)");
+        c.bench_function(N, |b| b.iter(|| xxx::cpy(y, x, n)));
+        c.bench_function(&N2, |b| b.iter(|| std::ptr::copy(y, x, n)));
+    };
 
-        c.bench_function("small copy", |b| b.iter(|| {
-            xxx::cpy(small_y, small_x, small_n);
-        }));
-    }
-
-    unsafe {
-        let n = 100_000;
-        let x = iota(n);
-        let y = xxx::new(n).unwrap();
-
-        c.bench_function("big copy", |b| b.iter(|| {
-            xxx::cpy(y, x, n);
-        }));
-    }
+    let small = 20;
+    let big = 100_000;
+    let really_big = 300_000;
 
     unsafe {
-        let n = 300_000;
-        let x = iota(n);
-        let y = xxx::new(n).unwrap();
-
-        c.bench_function("really big copy", |b| b.iter(|| {
-            xxx::cpy(y, x, n);
-        }));
+        B("small copy", small, iota(small), xxx::new(small));
+        B("big copy", big, iota(big), xxx::new(big));
+        B(
+            "really big copy",
+            really_big,
+            iota(really_big),
+            xxx::new(really_big),
+        );
     }
 }
 
