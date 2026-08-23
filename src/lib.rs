@@ -99,6 +99,22 @@ pub unsafe fn cpy<X>(x: *mut X, y: *mut X, Z: usize) {
     }
 
     unsafe {
+        while y.addr().trailing_zeros() < 2 && Z >= 1 {
+            W!(x, y, u8);
+        }
+
+        while y.addr().trailing_zeros() < 3 && Z >= 2 {
+            W!(x, y, u16);
+        }
+
+        while y.addr().trailing_zeros() < 4 && Z >= 4 {
+            W!(x, y, u32);
+        }
+
+        while y.addr().trailing_zeros() < 5 && Z >= 8 {
+            W!(x, y, u64);
+        }
+
         while Z >= 128 {
             W!(x, y, ymm_t);
             W!(x, y, ymm_t);
