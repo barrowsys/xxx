@@ -23,18 +23,15 @@ fn criterion_bench(c: &mut Criterion) {
     };
 
     let small = 20;
-    let big = 100_000;
-    let really_big = 300_000;
+    let med = 100_000;
+    let big = 300_000;
+    let huge = 500_000;
 
     unsafe {
         B("small copy", small, iota(small), xxx::new(small));
+        B("med copy", med, iota(med), xxx::new(med));
         B("big copy", big, iota(big), xxx::new(big));
-        B(
-            "really big copy",
-            really_big,
-            iota(really_big),
-            xxx::new(really_big),
-        );
+        B("huge copy", huge, iota(huge), xxx::new(huge));
     }
 }
 

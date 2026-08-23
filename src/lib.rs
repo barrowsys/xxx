@@ -1,5 +1,7 @@
 #![feature(likely_unlikely)]
 #![feature(repr_simd)]
+#![feature(pointer_is_aligned_to)]
+
 #![allow(internal_features)]
 #![allow(non_snake_case)]
 #![allow(non_camel_case_types)]
@@ -99,26 +101,24 @@ pub unsafe fn cpy<X>(x: *mut X, y: *mut X, Z: usize) {
     }
 
     unsafe {
-        if likely(Z >= 16) {
-            if y.addr() & 1 != 0 {
-                W!(x, y, u8);
-            }
+        if Z >= 1 && !y.is_aligned_to(2) {
+            W!(x, y, u8);
+        }
 
-            if y.addr() & 3 != 0 {
-                W!(x, y, u16);
-            }
+        if Z >= 2 && !y.is_aligned_to(4) {
+            W!(x, y, u16);
+        }
 
-            if y.addr() & 7 != 0 {
-                W!(x, y, u32);
-            }
+        if Z >= 4 && !y.is_aligned_to(8) {
+            W!(x, y, u32);
+        }
 
-            if y.addr() & 15 != 0 {
-                W!(x, y, u64);
-            }
+        if Z >= 8 && !y.is_aligned_to(16) {
+            W!(x, y, u64);
+        }
 
-            if y.addr() & 32 != 0 {
-                W!(x, y, xmm_t);
-            }
+        if Z >= 16 && !y.is_aligned_to(32) {
+            W!(x, y, xmm_t);
         }
 
         while Z >= 128 {
@@ -145,15 +145,7 @@ pub unsafe fn cpy<X>(x: *mut X, y: *mut X, Z: usize) {
             W!(x, y, u64);
         }
 
-        if Z >= 4 {
-            W!(x, y, u32);
-        }
-
-        if Z >= 2 {
-            W!(x, y, u16);
-        }
-
-        if Z >= 1 {
+        while Z >= 1 {
             W!(x, y, u8);
         }
     }
