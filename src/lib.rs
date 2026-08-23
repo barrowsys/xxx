@@ -17,6 +17,10 @@ pub type R<X> = Result<X, String>;
 #[derive(Copy, Clone)]
 struct xmm_t([u8; 16]);
 
+#[repr(simd)]
+#[derive(Copy, Clone)]
+struct ymm_t([u8; 32]);
+
 #[inline(always)]
 pub unsafe fn new<X>(Z: usize) -> R<*mut X> {
     if unlikely(Z == 0) {
@@ -77,7 +81,18 @@ pub unsafe fn cpy<X>(x: *mut X, y: *mut X, Z: usize) {
 
     loop {
         match Z {
-            /* simd (xmm/16) */
+            /* simd (ymm/512) */
+            q if q >= 32 => {
+                unsafe {
+                    W::<ymm_t>(x, y);
+                    x = x.add(32);
+                    y = y.add(32);
+                }
+
+                Z -= 32;
+            }
+
+            /* simd (xmm/128) */
             q if q >= 16 => {
                 unsafe {
                     W::<xmm_t>(x, y);
@@ -134,6 +149,37 @@ pub unsafe fn cpy<X>(x: *mut X, y: *mut X, Z: usize) {
 
             _ => break,
         }
+    }
+}
+
+#[test]
+fn Cpy_32() {
+    unsafe {
+        let x = new(8).unwrap();
+        let y = new(8).unwrap();
+
+        *x = 0u64;
+        *x.add(1) = 1;
+        *x.add(2) = 2;
+        *x.add(3) = 3;
+        *x.add(4) = 4;
+        *x.add(5) = 5;
+        *x.add(6) = 6;
+        *x.add(7) = 7;
+
+        cpy(y, x, 8);
+
+        assert_eq!(*x, *y);
+        assert_eq!(*x.add(1), *y.add(1));
+        assert_eq!(*x.add(2), *y.add(2));
+        assert_eq!(*x.add(3), *y.add(3));
+        assert_eq!(*x.add(4), *y.add(4));
+        assert_eq!(*x.add(5), *y.add(5));
+        assert_eq!(*x.add(6), *y.add(6));
+        assert_eq!(*x.add(7), *y.add(7));
+
+        free(x, 8);
+        free(y, 8);
     }
 }
 

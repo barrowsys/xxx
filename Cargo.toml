@@ -1,6 +1,12 @@
 [package]
-name = "x"
+name = "xxx"
 version = "0.1.0"
 edition = "2024"
 
-[dependencies]
+
+[dev-dependencies]
+criterion = { version = "0.8", features = [] }
+
+[[bench]]
+name = "cpy"
+harness = false
